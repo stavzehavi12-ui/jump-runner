@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Jump Runner</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #1a1a2e;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+      font-family: 'Segoe UI', sans-serif;
+      color: #fff;
+    }
+    h1 {
+      font-size: 2rem;
+      margin-bottom: 10px;
+      letter-spacing: 2px;
+      color: #e94560;
+    }
+    #score-display {
+      font-size: 1.2rem;
+      margin-bottom: 10px;
+      color: #a8dadc;
+    }
+    canvas {
+      border: 3px solid #e94560;
+      border-radius: 8px;
+      background: #16213e;
+      box-shadow: 0 0 30px rgba(233,69,96,0.4);
+    }
+    #message {
+      margin-top: 15px;
+      font-size: 1rem;
+      color: #a8dadc;
+      letter-spacing: 1px;
+    }
+  </style>
+</head>
+<body>
+  <h1>JUMP RUNNER</h1>
+  <div id="score-display">Score: <span id="score">0</span> &nbsp;|&nbsp; Best: <span id="best">0</span></div>
+  <canvas id="game" width="800" height="250"></canvas>
+  <div id="message">Press SPACE or tap to start</div>
+
+  <script>
+    const canvas = document.getElementById('game');
+    const ctx = canvas.getContext('2d');
+    const scoreEl = document.getElementById('score');
+    const bestEl = document.getElementById('best');
+    const messageEl = document.getElementById('message');
+
+    const GROUND = canvas.height - 60;
+    const GRAVITY = 0.6;
+    const JUMP_FORCE = -14;
+
+    let state = 'idle'; // idle | running | dead
+    let score = 0;
+    let best = 0;
+    let frame = 0;
+    let speed = 5;
+
+    const player = {
+      x: 80,
+      y: GROUND,
+      w: 36,
+      h: 48,
+      vy: 0,
+      onGround: true,
+      jumpCount: 0,
+
+      jump() {
+        if (this.jumpCount < 2) {
+          this.vy = JUMP_FORCE;
+          this.onGround = false;
+          this.jumpCount++;
+        }
+      },
+
+      update() {
+        this.vy += GRAVITY;
+        this.y += this.vy;
+        if (this.y >= GROUND) {
+          this.y = GROUND;
+          this.vy = 0;
+          this.onGround = true;
+          this.jumpCount = 0;
+        }
+      },
+
+      draw() {
+        const px = this.x;
+        const py = this.y;
+        const h = this.h;
+        const w = this.w;
+
+        // Body
+        ctx.fillStyle = '#e94560';
+        ctx.beginPath();
+        ctx.roundRect(px, py - h, w, h * 0.65, 6);
+        ctx.fill();
+
+        // Head
+        ctx.fillStyle = '#f4a261';
+        ctx.beginPath();
+        ctx.arc(px + w / 2, py - h * 0.72, w * 0.38, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Eyes
+        ctx.fillStyle = '#fff';
+        ctx.beginPath();
+        ctx.arc(px + w * 0.62, py - h * 0.78, 5, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#1a1a2e';
+        ctx.beginPath();
+        ctx.arc(px + w * 0.65, py - h * 0.78, 2.5, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Legs (animated)
+        const legSwing = this.onGround ? Math.sin(frame * 0.3) * 8 : 0;
+        ctx.strokeStyle = '#e94560';
+        ctx.lineWidth = 5;
+        ctx.lineCap = 'round';
+        ctx.beginPath();
+        ctx.moveTo(px + w * 0.3, py - h * 0.35);
+        ctx.lineTo(px + w * 0.2, py + legSwing);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(px + w * 0.7, py - h * 0.35);
+        ctx.lineTo(px + w * 0.8, py - legSwing);
+        ctx.stroke();
+      }
+    };
+
+    let obstacles = [];
+
+    function spawnObstacle() {
+      const type = Math.random() < 0.4 ? 'tall' : 'wide';
+      const w = type === 'tall' ? 22 : 40;
+      const h = type === 'tall' ? 70 : 38;
+      const colors = ['#0f3460', '#533483', '#e94560', '#457b9d'];
+      obstacles.push({
+        x: canvas.width + 10,
+        y: GROUND - h,
+        w, h,
+        color: colors[Math.floor(Math.random() * colors.length)]
+      });
+    }
+
+    function checkCollision(a, b) {
+      const pad = 6;
+      return (
+        a.x + pad < b.x + b.w &&
+        a.x + a.w - pad > b.x &&
+        a.y - a.h + pad < b.y + b.h &&
+        a.y - pad > b.y
+      );
+    }
+
+    function drawGround() {
+      ctx.fillStyle = '#0f3460';
+      ctx.fillRect(0, GROUND + 2, canvas.width, canvas.height - GROUND - 2);
+      ctx.fillStyle = '#e94560';
+      ctx.fillRect(0, GROUND, canvas.width, 3);
+
+      // Moving dashes
+      ctx.fillStyle = 'rgba(168, 218, 220, 0.2)';
+      for (let i = 0; i < 8; i++) {
+        const x = ((i * 110) - (frame * speed * 0.5) % 110 + 110) % (canvas.width + 110);
+        ctx.fillRect(x, GROUND + 8, 50, 3);
+      }
+    }
+
+    function drawBackground() {
+      // Stars
+      ctx.fillStyle = 'rgba(168,218,220,0.6)';
+      for (let i = 0; i < 30; i++) {
+        const x = ((i * 83 + 17) - frame * speed * 0.1) % canvas.width;
+        const y = (i * 37 + 20) % (GROUND - 20);
+        const size = (i % 3 === 0) ? 2 : 1;
+        ctx.fillRect((x + canvas.width) % canvas.width, y, size, size);
+      }
+    }
+
+    function reset() {
+      player.y = GROUND;
+      player.vy = 0;
+      player.onGround = true;
+      player.jumpCount = 0;
+      obstacles = [];
+      score = 0;
+      frame = 0;
+      speed = 5;
+      state = 'running';
+      messageEl.textContent = 'SPACE / Tap = Jump (double jump supported!)';
+    }
+
+    let spawnTimer = 0;
+    const MIN_SPAWN = 60;
+    const MAX_SPAWN = 120;
+    let nextSpawn = 80;
+
+    function loop() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      drawBackground();
+      drawGround();
+
+      if (state === 'running') {
+        frame++;
+        score++;
+        speed = 5 + Math.floor(score / 500) * 0.5;
+        scoreEl.textContent = score;
+
+        player.update();
+
+        spawnTimer++;
+        if (spawnTimer >= nextSpawn) {
+          spawnObstacle();
+          spawnTimer = 0;
+          nextSpawn = MIN_SPAWN + Math.floor(Math.random() * (MAX_SPAWN - MIN_SPAWN));
+        }
+
+        for (let i = obstacles.length - 1; i >= 0; i--) {
+          obstacles[i].x -= speed;
+          if (obstacles[i].x + obstacles[i].w < 0) {
+            obstacles.splice(i, 1);
+            continue;
+          }
+          if (checkCollision(player, obstacles[i])) {
+            state = 'dead';
+            if (score > best) {
+              best = score;
+              bestEl.textContent = best;
+            }
+            messageEl.textContent = `Game Over! Score: ${score} — Press SPACE or tap to restart`;
+          }
+        }
+      }
+
+      // Draw obstacles
+      for (const obs of obstacles) {
+        ctx.fillStyle = obs.color;
+        ctx.beginPath();
+        ctx.roundRect(obs.x, obs.y, obs.w, obs.h, 4);
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(255,255,255,0.15)';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+
+        // Spikes on top
+        ctx.fillStyle = '#e94560';
+        const spikeW = 8;
+        for (let s = 0; s < Math.floor(obs.w / spikeW); s++) {
+          ctx.beginPath();
+          ctx.moveTo(obs.x + s * spikeW, obs.y);
+          ctx.lineTo(obs.x + s * spikeW + spikeW / 2, obs.y - 10);
+          ctx.lineTo(obs.x + s * spikeW + spikeW, obs.y);
+          ctx.fill();
+        }
+      }
+
+      player.draw();
+
+      // Idle / dead overlay
+      if (state === 'idle') {
+        ctx.fillStyle = 'rgba(26,26,46,0.6)';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = '#e94560';
+        ctx.font = 'bold 36px Segoe UI';
+        ctx.textAlign = 'center';
+        ctx.fillText('JUMP RUNNER', canvas.width / 2, canvas.height / 2 - 10);
+        ctx.fillStyle = '#a8dadc';
+        ctx.font = '18px Segoe UI';
+        ctx.fillText('Press SPACE or tap to start', canvas.width / 2, canvas.height / 2 + 28);
+        ctx.textAlign = 'left';
+      }
+
+      if (state === 'dead') {
+        ctx.fillStyle = 'rgba(233,69,96,0.15)';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+      }
+
+      requestAnimationFrame(loop);
+    }
+
+    function handleInput() {
+      if (state === 'idle' || state === 'dead') {
+        reset();
+      } else if (state === 'running') {
+        player.jump();
+      }
+    }
+
+    document.addEventListener('keydown', e => {
+      if (e.code === 'Space' || e.code === 'ArrowUp') {
+        e.preventDefault();
+        handleInput();
+      }
+    });
+
+    canvas.addEventListener('click', handleInput);
+    canvas.addEventListener('touchstart', e => { e.preventDefault(); handleInput(); }, { passive: false });
+
+    loop();
+  </script>
+</body>
+</html>
